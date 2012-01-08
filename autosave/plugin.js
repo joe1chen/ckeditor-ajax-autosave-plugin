@@ -440,7 +440,8 @@
 					autosaveButtonUsed = false;
 					invokeExecute( editor );
 				}
-			} else if ( autosaveCounter >= editor.config.autosaveSensitivity )
+			} else if ( editor.config.autosaveSensitivity
+						&& autosaveCounter >= editor.config.autosaveSensitivity )
 			{
 				if( autosaveIsMinTimeBetweenRequests )
 				{
@@ -452,8 +453,14 @@
 					autosaveWorking = false;
 				}
 
-			}else
+			}else{
 				autosaveWorking = false;// nothing matches.
+				
+				//If only button works, reset counter after every non button saving attempt.
+				if( !editor.config.autosaveSensitivity 
+						&& !editor.config.autosaveRefreshTime)
+					autosaveCounter = 0;
+			}	
 		}
 
 		// reset autosaveButtonUsed if button was used and autosaveWorking ==
@@ -493,6 +500,7 @@
 			},	editor.config.autosaveMinTimeBetweenRequests * 1000 );
 	}
 	
+	//this._.id == CKEDITOR.instances.editor2._.commands.autosave.uiItems[0]._.id == editor._.commands.autosave.uiItems[0]._.id 
 	function autosaveChangeIcon( editor, iconPath, description )
 	{
 		var autosaveButton = CKEDITOR.document
@@ -588,9 +596,11 @@
 			// initialize events for CKEditor.
 			editor.on( 'instanceReady', function( evt )
 			{
-				//Interval can't be smaller than min time between two following requests
-				if(parseInt( editor.config.autosaveRefreshTime, 10 ) <
-					parseInt( editor.config.autosaveMinTimeBetweenRequests, 10 ) )
+				//Interval can't be smaller than min time between two following requests.
+				//An exception from this rule is when interval is switched off (set to 0).
+				if(editor.config.autosaveRefreshTime && 
+						parseInt( editor.config.autosaveRefreshTime, 10 ) < 
+						parseInt( editor.config.autosaveMinTimeBetweenRequests, 10 ) )
 					editor.config.autosaveRefreshTime =
 						editor.config.autosaveMinTimeBetweenRequests;
 
@@ -819,7 +829,7 @@
 					// Invoking execution of autosave command.
 					editor.execCommand( 'autosave' );
 				},
-				
+				/* this.path == editor.plugins.autosave.path */
 				icon : this.path + 'images/autosaveClean.gif'
 			} );
 		}
@@ -829,13 +839,15 @@
 // Extend CKEditor configuration options.
 CKEDITOR.tools.extend( CKEDITOR.config, {
 	//Informs after how many changes made in the editor’s data
-	//autosave should be fired. Default value is 20.
+	//autosave should be fired. If set to zero this trigger will not be used.
+	//Default value is 20.
 	autosaveSensitivity : 20,
 
 	//Time in seconds after which autosave will fire.
-	//If set to zero, interval will not be used. Default value is 30.
-	//NOTE: Value for this property can be either bigger or equal
-	//to autosaveMinTimeBetweenRequests
+	//If set to zero, interval will not be used (it will be switched off).  
+	//Default value is 30.
+	//NOTE: If not set to zero then the value for this property  
+	//can be either bigger or equal to autosaveMinTimeBetweenRequests. 
 	autosaveRefreshTime : 30,
 
 	// Specifies if onbeforeunload event should be used.
