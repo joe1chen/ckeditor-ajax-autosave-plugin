@@ -677,8 +677,7 @@
 				// Add keystroke to CKEditor's keystroke table 
 				if ( editor.config.autosaveKeystroke )
 				{							
-					var confKstr = editor.config.autosaveKeystroke;
-					console.log(editor.keystrokeHandler.keystrokes[ confKstr ]);
+					var confKstr = editor.config.autosaveKeystroke;					
 					if (!containsKeystroke(editor.config.keystrokes, confKstr ) 
 							&& !editor.keystrokeHandler.keystrokes[ confKstr ] )
 					{
