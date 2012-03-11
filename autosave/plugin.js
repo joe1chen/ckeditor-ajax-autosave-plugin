@@ -64,6 +64,9 @@
 	// Hook to timeout used to count time between requests (used in window.clearTimeout).
 	var autosaveTimeoutBetweenRequests = '';
 
+	//Flag indicating if keystroke was added.
+	var autosaveKeystrokeAdded = false;
+
 	var autosaveTestPattern =  /^form$|^body$/i;
 
 	var autosaveTestPatternSmall =  /^form$/i;
@@ -372,6 +375,7 @@
 						autosaveWorking = false;
 						if(autosaveCounterPrevious)
 							autosaveCounter += autosaveCounterPrevious;
+						editorInstance.fire( 'afterAutosave' );
 					}
 
 				};
@@ -390,14 +394,16 @@
 
 				xhrObject.xhr.open( method, targetUrl, true );
 
+				//if POST we assume there is only URL and no queryString attached.
 				if ( method == 'POST' )
 				{
 					xhrObject.xhr.setRequestHeader( 'Content-Type',
 						'application/x-www-form-urlencoded; charset=UTF-8' );
 					// encode request params. All except for contents as
-					//they were already encoded.
+					// they were already encoded.
 					requestParams = _encodeParams( requestParams );
 				}
+				editorInstance.fire( 'beforeAutosave' );
 				xhrObject.xhr.send( requestParams );
 			}
 		};
@@ -486,10 +492,13 @@
 		autosaveChangeIcon( editor, autosaveIcons[3].path,
 			autosaveIcons[3].title );
 
+		cleanUserRequestParameters( editor, false );
+
 		autosaveAjax.request( editor, editor.config.autosaveMethod,
-			editor.config.autosaveTargetUrl, 'autosaveaction=draft&ckeditorname='
-				+ editor.name + '&' + editor.config.autosaveContentParamName
-				+ '=' + encodeURIComponent( currentData ) );
+			editor.config.autosaveTargetUrl, editor.config.autosaveRequestParams 
+			+ 'autosaveaction=draft&ckeditorname=' + editor.name + '&' + 
+			editor.config.autosaveContentParamName + '=' + 
+			encodeURIComponent( currentData ) );
 
 		// set timeout between requests.
 		window.clearTimeout( autosaveTimeoutBetweenRequests );
@@ -500,7 +509,6 @@
 			},	editor.config.autosaveMinTimeBetweenRequests * 1000 );
 	}
 	
-	//this._.id == CKEDITOR.instances.editor2._.commands.autosave.uiItems[0]._.id == editor._.commands.autosave.uiItems[0]._.id 
 	function autosaveChangeIcon( editor, iconPath, description )
 	{
 		var autosaveButton = CKEDITOR.document
@@ -512,6 +520,35 @@
 		autosaveButton.setAttribute( 'title', description );
 		// changes the value of label
 		autosaveButton.getChild( 1 ).setHtml( description );
+	}
+
+	function endsWith( str, suffix ) {
+	    return str.indexOf(suffix, str.length - suffix.length) !== -1;
+	}
+
+	
+	// Removes leading and adds trailing ampersand sign.	
+	function cleanUserRequestParameters( editor, trimEnd ){
+		if( editor.config.autosaveRequestParams ) {
+			var helper = editor.config.autosaveRequestParams;	
+			var x = '&';
+			
+			// Remove all leading '&'.
+			while( helper && helper.indexOf( x ) === 0 )
+				helper = ( helper.length === 1 ? '' : helper.substring( 1 ) );						
+			
+			if(trimEnd){// true only during init.				
+				// Remove all trailing '&'.				
+				while( helper && endsWith( helper, x ) )
+					helper = helper.substring( 0, helper.length - 1 );
+			}
+			
+			// Later assume there is none or only one '&' at the end.
+			if ( helper && !endsWith( helper, x ) )
+				helper += '&';
+			
+			editor.config.autosaveRequestParams = helper;
+		}		
 	}
 
 	// If editor was NOT modified since last save or error, this method changes
@@ -570,6 +607,17 @@
         return result;
     }
 
+	// Checks if entered keystroke is already in table
+	function containsKeystroke( arr, keystroke ) {
+	    var i = arr.length;
+	    while ( i-- ) {
+	       if ( arr[ i ][ 0 ] === keystroke ) {
+	           return true;
+	       }
+	    }
+	    return false;
+	}
+
 	//Walks up the DOM tree until it
 	//finds form or body element
 	function getParentForm( elem )
@@ -586,6 +634,36 @@
 		}
 	}
 
+	function attachOnKeydown( editor, event )
+	{		
+		if ( editor.config.autosaveKeystroke && autosaveKeystrokeAdded )
+		{			
+			if ( event.data.getKeystroke() === editor.config.autosaveKeystroke )
+			{
+				autosaveButtonUsed = true;
+				
+				// Invoking execution of autosave command.
+				editor.execCommand( 'autosave' );				
+				return;
+			}							
+		} 		
+		
+		// Do not capture CTRL hotkeys.
+		if ( event.data.$.ctrlKey || event.data.$.metaKey )
+			return;
+
+		var keyCode = event.data.$.keyCode;
+		// Filter movement keys and related
+		if ( keyCode == 8 || keyCode == 13 || keyCode == 32 ||
+			( keyCode >= 46 && keyCode <= 90 ) ||
+			( keyCode >= 96 && keyCode <= 111 ) ||
+			( keyCode >= 186 && keyCode <= 222 ) )
+				window.setTimeout( function()
+				{
+					autosaveEnable( editor );
+				}, 100 );
+	}
+
 	CKEDITOR.plugins.add( 'autosave', {
 		// List of available localizations.
 		lang : [ 'en', 'pl' ],
@@ -593,16 +671,36 @@
 		init : function( editor )
 		{
 
+			//Modify keystrokes as early as possible.
+			editor.on( 'pluginsLoaded', function( evt )
+			{
+				// Add keystroke to CKEditor's keystroke table 
+				if ( editor.config.autosaveKeystroke )
+				{							
+					var confKstr = editor.config.autosaveKeystroke;
+					console.log(editor.keystrokeHandler.keystrokes[ confKstr ]);
+					if (!containsKeystroke(editor.config.keystrokes, confKstr ) 
+							&& !editor.keystrokeHandler.keystrokes[ confKstr ] )
+					{
+						editor.config.keystrokes.push( [ confKstr, 'autosave' ] );
+						editor.keystrokeHandler.keystrokes[ confKstr ] =  'autosave';
+						autosaveKeystrokeAdded = true;						
+					}				
+				}	
+			});
+
 			// initialize events for CKEditor.
 			editor.on( 'instanceReady', function( evt )
 			{
 				//Interval can't be smaller than min time between two following requests.
 				//An exception from this rule is when interval is switched off (set to 0).
-				if(editor.config.autosaveRefreshTime && 
+				if ( editor.config.autosaveRefreshTime && 
 						parseInt( editor.config.autosaveRefreshTime, 10 ) < 
 						parseInt( editor.config.autosaveMinTimeBetweenRequests, 10 ) )
 					editor.config.autosaveRefreshTime =
 						editor.config.autosaveMinTimeBetweenRequests;
+
+				cleanUserRequestParameters( editor, true );
 
 				// Set several listeners to watch for changes to the content...
 
@@ -630,23 +728,11 @@
 				} );
 
 				// catches changes in WYSIWYG mode.
-				editor.on( 'contentDom', function()
+				editor.on( 'contentDom', function( e )
 				{
 					editor.document.on( 'keydown', function( event )
 					{
-						if ( event.data.$.ctrlKey || event.data.$.metaKey )
-							return;
-
-						var keyCode = event.data.$.keyCode;
-						// Filter movement keys and related
-						if ( keyCode == 8 || keyCode == 13 || keyCode == 32 ||
-							( keyCode >= 46 && keyCode <= 90 ) ||
-							( keyCode >= 96 && keyCode <= 111 ) ||
-							( keyCode >= 186 && keyCode <= 222 ) )
-								window.setTimeout( function()
-								{
-									autosaveEnable( editor );
-								}, 100 );
+						attachOnKeydown( editor, event );
 					} );
 					editor.document.on( 'drop', function()
 					{
@@ -669,20 +755,7 @@
 
 					editor.textarea.on( 'keydown', function( event )
 					{
-						// Do not capture CTRL hotkeys.
-						if ( event.data.$.ctrlKey || event.data.$.metaKey )
-							return;
-
-						var keyCode = event.data.$.keyCode;
-						// Filter movement keys and related
-						if ( keyCode == 8 || keyCode == 13 || keyCode == 32 ||
-							( keyCode >= 46 && keyCode <= 90 ) ||
-							( keyCode >= 96 && keyCode <= 111 ) ||
-							( keyCode >= 186 && keyCode <= 222 ) )
-								window.setTimeout( function()
-								{
-									autosaveEnable( editor );
-								}, 100 );
+						attachOnKeydown( editor, event );
 					} );
 
 					editor.textarea.on( 'drop', function()
@@ -809,6 +882,8 @@
 
 				modes : { wysiwyg:1, source:1 },
 
+				canUndo : false,
+
 				// Contains method to be executed for autosave on button
 				// click, time interval or events.
 				exec : function( editor )
@@ -829,7 +904,7 @@
 					// Invoking execution of autosave command.
 					editor.execCommand( 'autosave' );
 				},
-				/* this.path == editor.plugins.autosave.path */
+				
 				icon : this.path + 'images/autosaveClean.gif'
 			} );
 		}
@@ -838,23 +913,23 @@
 
 // Extend CKEditor configuration options.
 CKEDITOR.tools.extend( CKEDITOR.config, {
-	//Informs after how many changes made in the editor’s data
-	//autosave should be fired. If set to zero this trigger will not be used.
-	//Default value is 20.
+	// Informs after how many changes made in the editor’s data
+	// autosave should be fired. If set to zero this trigger will not be used.
+	// Default value is 20.
 	autosaveSensitivity : 20,
 
-	//Time in seconds after which autosave will fire.
-	//If set to zero, interval will not be used (it will be switched off).  
-	//Default value is 30.
-	//NOTE: If not set to zero then the value for this property  
-	//can be either bigger or equal to autosaveMinTimeBetweenRequests. 
+	// Time in seconds after which autosave will fire.
+	// If set to zero, interval will not be used (it will be switched off).  
+	// Default value is 30.
+	// NOTE: If not set to zero then the value for this property  
+	// can be either bigger or equal to autosaveMinTimeBetweenRequests. 
 	autosaveRefreshTime : 30,
 
 	// Specifies if onbeforeunload event should be used.
 	// If user has changed editor data which haven’t yet been
 	// saved and he/she wants to leave the page, browser will
-	//ask him if he really wants to leave without saving the data.
-	//Default value is true.
+	// ask him if he really wants to leave without saving the data.
+	// Default value is true.
 	autosaveUseOnBeforeUnload : true,
 
 	// Target url (required). URL for connector handling the
@@ -870,22 +945,37 @@ CKEDITOR.tools.extend( CKEDITOR.config, {
 	// form is given.
 	autosaveParentFormId : '',
 
-	//Method used to send request. Only POST and GET are supported.
-	//Default value is POST.
+	// Method used to send request. Only POST and GET are supported.
+	// Default value is POST.
 	autosaveMethod : 'POST',
 
-	//Name of parameter, holding editor data, to use in GET or POST request.
-	//Default value is ‘content’.
+	// Name of parameter, holding editor data, to use in GET or POST request.
+	// Default value is ‘content’.
 	autosaveContentParamName : 'content',
 
-	//Time in seconds after which client-side request will timeout if it is not
-	//yet finished on server-side. If set to zero timeout for client-side request
-	//will not be used. Default value is 10.
-	//NOTE: This only aborts the client-side request so that application on browser
-	//side could return to its default state.
+	// User specific request parameters in form of querystring
+	// E.g. someName=false&someName2=someValue&someName3=5
+	// NOTE: This queryString should not start with ampersand sign. 
+	// Default value is empty string.
+	autosaveRequestParams : '',
+	
+	// Key shortcut for button used to invoke autosave action.  
+	// It is treated the same way as if button was pressed (no counter 
+	// checks are made). Specify the shortcut and plugin will add it to  
+	// CKEditor's keystroke table. 
+	// http://docs.cksource.com/ckeditor_api/symbols/CKEDITOR.config.html#.keystrokes
+	// NOTE: Shortcut will be added only if it does not exists in keystroke table.
+	// Example value CKEDITOR.CTRL + 83 (CRTL+S). Default value is empty string.
+	autosaveKeystroke : '',
+
+	// Time in seconds after which client-side request will timeout if it is not
+	// yet finished on server-side. If set to zero timeout for client-side request
+	// will not be used. Default value is 10.
+	// NOTE: This only aborts the client-side request so that application on browser
+	// side could return to its default state.
 	autosaveRequestTimeout : 10,
 
-	//Minimum amount of time in seconds which has to pass before another request
-	//is send to server. Default value is 15.
+	// Minimum amount of time in seconds which has to pass before another request
+	// is send to server. Default value is 15.
 	autosaveMinTimeBetweenRequests : 15
 } );
