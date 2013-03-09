@@ -512,7 +512,7 @@
 	function autosaveChangeIcon( editor, iconPath, description )
 	{
 		var autosaveButton = CKEDITOR.document
-			.getById( editor._.commands.autosave.uiItems[0]._.id );
+			.getById( editor._.editable.editor.commands.autosave.uiItems[0]._.id );
 
 		autosaveButton.getFirst().setStyle( 'background-image',
 			'url(' + editor.plugins.autosave.path + iconPath + ')' );
